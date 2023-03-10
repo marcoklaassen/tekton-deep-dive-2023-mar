@@ -1,0 +1,69 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: quarkus-native-pipeline
+spec:
+  workspaces:
+    - name: shared-workspace
+    - name: maven-settings
+  params:
+    - description: url of the git repo for the code of deployment
+      name: git-url
+      type: string
+    - description: revision to be used from repo of the code for deployment
+      name: git-revision
+      type: string
+      default: main
+    - description: image to be built from the code
+      name: IMAGE
+      type: string
+    - description: dockerfile location
+      name: DOCKERFILE
+      type: string
+      default: src/main/docker/Dockerfile.jvm
+  tasks:
+    - name: fetch-repository
+      params:
+        - name: url
+          value: $(params.git-url)
+        - name: subdirectory
+          value: ''
+        - name: deleteExisting
+          value: 'true'
+        - name: revision
+          value: $(params.git-revision)
+      taskRef:
+        kind: ClusterTask
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: shared-workspace
+    - name: build
+      runAfter:
+        - fetch-repository
+      taskRef:
+        kind: ClusterTask
+        name: maven
+      params:
+        - name: GOALS
+          value:
+            - package
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+        - name: maven-settings
+          workspace: maven-settings
+    - name: build-image
+      params:
+        - name: IMAGE
+          value: $(params.IMAGE):$(params.git-revision)
+        - name: DOCKERFILE
+          value: $(params.DOCKERFILE)
+      runAfter:
+        - build
+      taskRef:
+        kind: ClusterTask
+        name: buildah
+      workspaces:
+        - name: source
+          workspace: shared-workspace
